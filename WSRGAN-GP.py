@@ -1,12 +1,14 @@
 # SRGAN using Wasserstien distance & Gradient Penalty
 
 import os
+import math
 import pickle
 import random
 import numpy as np
 import tensorflow as tf
 import keras
 import matplotlib.pyplot as plt
+from skimage.metrics import structural_similarity
 
 
 OUTPUT_DIM = 3
@@ -136,13 +138,20 @@ class WSRGAN_GP(keras.Model):
     def save_progress(self, progress):
         if not os.path.exists(PROGRESS_FILE_PATH):
             with open(PROGRESS_FILE_PATH, 'w') as progress_file:
-                progress_file.write('iteration,epoch,generator_loss,critic_loss,psnr,ssim')
+                progress_file.write('iteration,epoch,generator_loss,critic_loss,mse,mean_psnr,mean_ssim,content_loss')
                 progress_file.write('\n')
 
         with open(PROGRESS_FILE_PATH, 'a') as progress_file:
             for each_record in progress:
                 progress_file.write(each_record)
                 progress_file.write('\n')
+
+    def MSE(self, hr_img, sr_img):
+        return np.mean((hr_img-sr_img) ** 2)
+
+    def PSNR(self, mse):
+        MAX_PIXEL = 255
+        return 20 * math.log10(MAX_PIXEL / math.sqrt(mse))
         
     @tf.function
     def train_step(self, img_batchs):
@@ -185,7 +194,10 @@ class WSRGAN_GP(keras.Model):
 
         return gen_loss, crit_losses, fx, fgz1, fgz2, content_loss
 
-    def train(self, dataset, n_epoch, n_critic, fixed_testset):    
+    def train(self, dataset, n_epoch, n_critic, fixed_testset):
+        fixed_testset_lr = tf.image.resize(fixed_testset, [32, 32])
+        fixed_testset_64x64 = tf.image.resize(fixed_testset, [64, 64])
+
         dataset = list(dataset)
         n_batch = len(dataset)
         n_iter = n_batch // n_critic
@@ -194,29 +206,62 @@ class WSRGAN_GP(keras.Model):
             iter = 0
             progress = []
             for i in range(0, n_batch, n_critic):
+                iter += 1
                 img_batchs = dataset[i:i+n_critic]
                 gen_loss, crit_losses, fx, fgz1, fgz2, content_loss = self.train_step(img_batchs)
                 
+                # prepare ground truth (HR) and Super Resolution (SR) in range 0 - 255
+                hr_img = (fixed_testset + 1) * 127.5
+                sr_img = (self.generator(fixed_testset_lr, training=False) + 1) * 127.5
+
+                # calculate Mean Square Error (MSE)
+                mse = self.MSE(hr_img, sr_img)
+
+                # calculate Mean Peak Signal to Noise Ratio (PSNR)
+                mpsnr = 0
+
+                # calculate Mean Structural Similarity (SSIM)
+                mssim = 0
+
+                n_fixed_testset = fixed_testset.shape[0]
+                for i in range(n_fixed_testset):
+                    # PSNR
+                    ith_img_mse = self.MSE(hr_img[i], sr_img[i])
+                    ith_img_psnr = self.PSNR(ith_img_mse)
+                    mpsnr += ith_img_psnr
+
+                    # SSIM
+                    ith_img_ssim = structural_similarity(np.array(hr_img[i]), np.array(sr_img[i]), data_range=255, channel_axis=-1)
+                    mssim += ith_img_ssim
+                
+                mpsnr /= n_fixed_testset
+                mssim /= n_fixed_testset
+
+                # calculate Content Loss (Perceptual Loss)
+                content_loss = tf.reduce_mean(self.vgg_loss(hr_img, sr_img))
+
                 # for each training step
                 values_to_save = [
                     str(iter+INITIAL_ITER),
                     str(epoch+INITIAL_EPOCH),
                     f'{gen_loss:.4f}',
                     ' '.join([f'{loss:.4f}' for loss in crit_losses]),
-                    '0.000', #psnr
-                    '0.000', #ssim
+                    f'{mse:.4f}',
+                    f'{mpsnr:.4f}',
+                    f'{mssim:.4f}',
+                    f'{content_loss:.4f}',
                 ]
                 progress.append(','.join(values_to_save))
 
-                if (iter%5 == 0) or (iter == n_iter-1):
+                if (iter == 0) or (iter%5 == 0) or (iter == n_iter):
                     fx = tf.reduce_mean(fx)
                     fgz1 = tf.reduce_mean(fgz1)
                     fgz2 = tf.reduce_mean(fgz2)
                     content_loss = tf.reduce_mean(content_loss)
-                    print(f'epoch {epoch+INITIAL_EPOCH}/{n_epoch+INITIAL_EPOCH} \t iteration {iter+1}/{n_iter} \t loss_g {gen_loss:.4f} \t loss_c {crit_loss:.4f} \t fx {fx:.4f} \t fgz1 {fgz1:.4f} \t fgz2 {fgz2:.4f} \t content {content_loss:.4f}')
+                    print(f'epoch {epoch+INITIAL_EPOCH}/{n_epoch+INITIAL_EPOCH} \t iteration {iter+1}/{n_iter} \t loss_g {gen_loss:.4f} \t loss_c {np.mean(crit_losses):.4f} \t fx {fx:.4f} \t fgz1 {fgz1:.4f} \t fgz2 {fgz2:.4f} \t content {content_loss:.4f}')
                     
                     # save image
-                    generated_imgs = self.generator(fixed_testset, training=False)
+                    generated_imgs = self.generator(fixed_testset_64x64, training=False)
                     generated_imgs = (generated_imgs + 1) * 127.5 # convert back to [0, 255]
 
                     plt.figure(figsize=(10, 10))
@@ -228,8 +273,6 @@ class WSRGAN_GP(keras.Model):
                         plt.imshow(generated_imgs[a].numpy().astype(np.uint8))
                     plt.savefig(OUTPUT_DIR + f'epoch{epoch+INITIAL_EPOCH}iteration{iter+1}.png', bbox_inches='tight')
                     plt.close('all')
-
-                iter += 1
 
             # for each epoch
             self.save_progress(progress)
@@ -279,7 +322,7 @@ if __name__ == '__main__':
 
     fixed_testset = keras.utils.image_dataset_from_directory(
         directory='datasets/crack/fixed_test',
-        image_size=(64, 64),
+        image_size=(IMG_HEIGHT, IMG_WIDTH),
         batch_size=36,
         shuffle=False # If set to False, sorts the data in alphanumeric order.
     ).map(lambda imgs, _ : tf.cast(imgs, tf.float32) / 127.5 - 1)
