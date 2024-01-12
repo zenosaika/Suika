@@ -2,6 +2,7 @@
 
 import os
 import math
+import time
 import pickle
 import random
 import numpy as np
@@ -138,7 +139,7 @@ class WSRGAN_GP(keras.Model):
     def save_progress(self, progress):
         if not os.path.exists(PROGRESS_FILE_PATH):
             with open(PROGRESS_FILE_PATH, 'w') as progress_file:
-                progress_file.write('iteration,epoch,generator_loss,critic_loss,mse,mean_psnr,mean_ssim,content_loss')
+                progress_file.write('iteration,epoch,generator_loss,critic_loss,mse,mean_psnr,mean_ssim,content_loss,elapsed_time')
                 progress_file.write('\n')
 
         with open(PROGRESS_FILE_PATH, 'a') as progress_file:
@@ -196,7 +197,6 @@ class WSRGAN_GP(keras.Model):
 
     def train(self, dataset, n_epoch, n_critic, fixed_testset):
         fixed_testset_lr = tf.image.resize(fixed_testset, [32, 32])
-        fixed_testset_64x64 = tf.image.resize(fixed_testset, [64, 64])
 
         dataset = list(dataset)
         n_batch = len(dataset)
@@ -208,8 +208,11 @@ class WSRGAN_GP(keras.Model):
             for i in range(0, n_batch, n_critic):
                 iter += 1
                 img_batchs = dataset[i:i+n_critic]
+
+                start_time = time.time()
                 gen_loss, crit_losses, fx, fgz1, fgz2, content_loss = self.train_step(img_batchs)
-                
+                elapsed_time_in_second = time.time() - start_time
+
                 # prepare ground truth (HR) and Super Resolution (SR) in range 0 - 255
                 hr_img = (fixed_testset + 1) * 127.5
                 sr_img = (self.generator(fixed_testset_lr, training=False) + 1) * 127.5
@@ -250,6 +253,7 @@ class WSRGAN_GP(keras.Model):
                     f'{mpsnr:.4f}',
                     f'{mssim:.4f}',
                     f'{content_loss:.4f}',
+                    f'{elapsed_time_in_second:4f}',
                 ]
                 progress.append(','.join(values_to_save))
 
@@ -258,20 +262,24 @@ class WSRGAN_GP(keras.Model):
                     fgz1 = tf.reduce_mean(fgz1)
                     fgz2 = tf.reduce_mean(fgz2)
                     content_loss = tf.reduce_mean(content_loss)
-                    print(f'epoch {epoch+INITIAL_EPOCH}/{n_epoch+INITIAL_EPOCH} \t iteration {iter+1}/{n_iter} \t loss_g {gen_loss:.4f} \t loss_c {np.mean(crit_losses):.4f} \t fx {fx:.4f} \t fgz1 {fgz1:.4f} \t fgz2 {fgz2:.4f} \t content {content_loss:.4f}')
-                    
-                    # save image
-                    generated_imgs = self.generator(fixed_testset_64x64, training=False)
-                    generated_imgs = (generated_imgs + 1) * 127.5 # convert back to [0, 255]
 
+                    print(f'epoch {epoch+INITIAL_EPOCH}/{n_epoch+INITIAL_EPOCH} \t iteration {iter}/{n_iter} \t loss_g {gen_loss:.4f} \t loss_c {np.mean(crit_losses):.4f} \t fx {fx:.4f} \t fgz1 {fgz1:.4f} \t fgz2 {fgz2:.4f} \t content {content_loss:.4f}')
+                    
                     plt.figure(figsize=(10, 10))
                     for a in range(36):
                         plt.subplot(6, 6, a+1)
                         plt.xticks([])
                         plt.yticks([])
                         plt.grid(False)
-                        plt.imshow(generated_imgs[a].numpy().astype(np.uint8))
-                    plt.savefig(OUTPUT_DIR + f'epoch{epoch+INITIAL_EPOCH}iteration{iter+1}.png', bbox_inches='tight')
+                        plt.imshow(sr_img[a].numpy().astype(np.uint8))
+                    plt.savefig(OUTPUT_DIR + f'epoch{epoch+INITIAL_EPOCH}_iter{iter+INITIAL_ITER}.png', bbox_inches='tight')
+
+                    # overlay_imgs = np.abs(hr_img-sr_img)
+                    # for a in range(36):
+                    #     plt.subplot(6, 6, a+1)
+                    #     plt.imshow(overlay_imgs[a].astype(np.uint8), alpha=0.5)
+                    # plt.savefig(OUTPUT_DIR + f'epoch{epoch+INITIAL_EPOCH}_iter{iter+INITIAL_ITER}_overlay.png', bbox_inches='tight')
+
                     plt.close('all')
 
             # for each epoch
