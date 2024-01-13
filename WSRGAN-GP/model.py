@@ -1,6 +1,8 @@
-# SRGAN using Wasserstien distance & Gradient Penalty
+# [WSRGAN-GP] - SRGAN using Wasserstien distance & Gradient Penalty
+# Author : H3ART (owlmen2546@gmail.com)
 
 import os
+import sys
 import math
 import time
 import pickle
@@ -11,7 +13,6 @@ import keras
 import matplotlib.pyplot as plt
 from skimage.metrics import structural_similarity
 
-import dataset_util
 
 OUTPUT_DIM = 3
 IMG_HEIGHT = 128
@@ -27,10 +28,16 @@ INITIAL_EPOCH = 0
 INITIAL_ITER = 0
 
 THIS_DIR = os.path.dirname(__file__)
-OUTPUT_DIR = os.path.join(THIS_DIR, 'WSRGAN-GP', 'output/')
-CHECKPOINT_DIR = os.path.join(THIS_DIR, 'WSRGAN-GP', 'checkpoint/')
-STATE_FILE_PATH = os.path.join(THIS_DIR, 'WSRGAN-GP', 'state_file')
-PROGRESS_FILE_PATH = os.path.join(THIS_DIR, 'WSRGAN-GP', 'progress_file')
+OUTPUT_DIR = os.path.join(THIS_DIR, 'train_output/')
+CHECKPOINT_DIR = os.path.join(THIS_DIR, 'checkpoint/')
+STATE_FILE_PATH = os.path.join(THIS_DIR, 'state_file')
+PROGRESS_FILE_PATH = os.path.join(THIS_DIR, 'progress_file')
+PARENT_DIR = os.path.join(THIS_DIR, os.pardir)
+DATASETS_DIR = os.path.join(PARENT_DIR, 'datasets')
+
+
+sys.path.append(PARENT_DIR)
+import dataset_util # import dataset_util from the parent directory
 
 
 class Generator(keras.Model):
@@ -266,6 +273,9 @@ class WSRGAN_GP(keras.Model):
 
                     print(f'epoch {epoch+INITIAL_EPOCH}/{n_epoch+INITIAL_EPOCH} \t iteration {iter}/{n_iter} \t loss_g {gen_loss:.4f} \t loss_c {np.mean(crit_losses):.4f} \t fx {fx:.4f} \t fgz1 {fgz1:.4f} \t fgz2 {fgz2:.4f} \t content {content_loss:.4f}')
                     
+                    if not os.path.exists(OUTPUT_DIR):
+                        os.mkdir(OUTPUT_DIR)
+
                     plt.figure(figsize=(10, 10))
                     for a in range(36):
                         plt.subplot(6, 6, a+1)
@@ -294,58 +304,3 @@ class WSRGAN_GP(keras.Model):
                 'LATEST_ITER': iter+INITIAL_ITER,
             }, state_file)
             state_file.close()
-
-
-if __name__ == '__main__':
-
-    # load state
-    if os.path.exists(STATE_FILE_PATH):
-        print('load state...')
-        state_file = open(STATE_FILE_PATH, 'rb')
-        state = pickle.load(state_file)
-        if 'LATEST_EPOCH' in state:
-            INITIAL_EPOCH = state['LATEST_EPOCH']
-        if 'INITIAL_ITER' in state:
-            INITIAL_ITER = state['INITIAL_ITER']
-        state_file.close()
-
-    generator = Generator()
-    critic = Critic()
-    wsrgan_gp = WSRGAN_GP(generator, critic)
-
-    latest_cp = tf.train.latest_checkpoint(CHECKPOINT_DIR)
-    if latest_cp:
-        print('load weight...')
-        wsrgan_gp.load_weights(latest_cp)
-
-    # if datasets not found, download from drive
-    if not os.path.exists('datasets/crack'):
-        dataset_util.download('crack')
-
-    # load dataset & normalize to [-1, 1]
-    print('load dataset...')
-    dataset = keras.utils.image_dataset_from_directory(
-        directory='datasets/crack/img',
-        image_size=(IMG_HEIGHT, IMG_WIDTH),
-        batch_size=BATCH_SIZE
-    ).map(lambda imgs, _ : tf.cast(imgs, tf.float32) / 127.5 - 1)
-
-    fixed_testset = keras.utils.image_dataset_from_directory(
-        directory='datasets/crack/fixed_test',
-        image_size=(IMG_HEIGHT, IMG_WIDTH),
-        batch_size=36,
-        shuffle=False # If set to False, sorts the data in alphanumeric order.
-    ).map(lambda imgs, _ : tf.cast(imgs, tf.float32) / 127.5 - 1)
-    fixed_testset = next(iter(fixed_testset)) # get first batch
-
-    gen_optimizer = keras.optimizers.legacy.Adam(1e-4, beta_1=0.0, beta_2=0.9)
-    crit_optimizer = keras.optimizers.legacy.Adam(1e-4, beta_1=0.0, beta_2=0.9)
-    wsrgan_gp.compile(gen_optimizer, crit_optimizer)
-
-    print('start training!')
-    wsrgan_gp.train(dataset, N_EPOCH, N_CRITIC, fixed_testset)
-
-    # to plot model architecture
-    # tf.keras.utils.plot_model(generator.model, to_file='generator.png', show_shapes=True)
-    # critic.build(input_shape=(None, IMG_HEIGHT, IMG_WIDTH, 3))
-    # tf.keras.utils.plot_model(critic.model, to_file='critic.png', show_shapes=True)
