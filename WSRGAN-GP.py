@@ -11,6 +11,7 @@ import keras
 import matplotlib.pyplot as plt
 from skimage.metrics import structural_similarity
 
+import dataset_util
 
 OUTPUT_DIM = 3
 IMG_HEIGHT = 128
@@ -284,7 +285,7 @@ class WSRGAN_GP(keras.Model):
 
             # for each epoch
             self.save_progress(progress)
-            self.save_weights(CHECKPOINT_DIR + f'wsrgan-gp_epoch{epoch+INITIAL_EPOCH}')
+            self.save_weights(CHECKPOINT_DIR + f'wsrgan-gp')
 
             # save state
             state_file = open(STATE_FILE_PATH, 'wb')
@@ -317,8 +318,9 @@ if __name__ == '__main__':
         print('load weight...')
         wsrgan_gp.load_weights(latest_cp)
 
-    gen_optimizer = keras.optimizers.legacy.Adam(1e-4, beta_1=0.0, beta_2=0.9)
-    crit_optimizer = keras.optimizers.legacy.Adam(1e-4, beta_1=0.0, beta_2=0.9)
+    # if datasets not found, download from drive
+    if not os.path.exists('datasets/crack'):
+        dataset_util.download('crack')
 
     # load dataset & normalize to [-1, 1]
     print('load dataset...')
@@ -336,10 +338,14 @@ if __name__ == '__main__':
     ).map(lambda imgs, _ : tf.cast(imgs, tf.float32) / 127.5 - 1)
     fixed_testset = next(iter(fixed_testset)) # get first batch
 
+    gen_optimizer = keras.optimizers.legacy.Adam(1e-4, beta_1=0.0, beta_2=0.9)
+    crit_optimizer = keras.optimizers.legacy.Adam(1e-4, beta_1=0.0, beta_2=0.9)
     wsrgan_gp.compile(gen_optimizer, crit_optimizer)
 
     print('start training!')
     wsrgan_gp.train(dataset, N_EPOCH, N_CRITIC, fixed_testset)
 
+    # to plot model architecture
     # tf.keras.utils.plot_model(generator.model, to_file='generator.png', show_shapes=True)
-    # tf.keras.utils.plot_model(discriminator.model, to_file='discriminator.png', show_shapes=True)
+    # critic.build(input_shape=(None, IMG_HEIGHT, IMG_WIDTH, 3))
+    # tf.keras.utils.plot_model(critic.model, to_file='critic.png', show_shapes=True)

@@ -1,0 +1,1 @@
+iteration,epoch,generator_loss,critic_loss,mse,mean_psnr,mean_ssim,content_loss,elapsed_time
