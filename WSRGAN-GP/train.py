@@ -4,6 +4,10 @@
 from model import *
 
 
+device_name = tf.test.gpu_device_name()
+print(f'[DEVICE]: {device_name if device_name else "CPU"}')
+
+
 generator = Generator()
 critic = Critic()
 wsrgan_gp = WSRGAN_GP(generator, critic)
