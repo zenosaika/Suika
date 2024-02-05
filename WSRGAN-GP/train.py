@@ -29,7 +29,7 @@ checkpoint = tf.train.Checkpoint(model=wsrgan_gp)
 ckpt_manager = tf.train.CheckpointManager(checkpoint, directory=CHECKPOINT_DIR, max_to_keep=1)
 
 # download weight from google drive
-if not os.path.exists(THIS_DIR):
+if not os.path.exists(os.paht.join(THIS_DIR, 'checkpoint')):
    gdown_weight.download('wsrgan-gp', THIS_DIR)
 
 # load weight
