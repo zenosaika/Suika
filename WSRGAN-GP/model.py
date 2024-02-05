@@ -265,7 +265,7 @@ class WSRGAN_GP(keras.Model):
                 ]
                 progress.append(','.join(values_to_save))
 
-                if (iter == 0) or (iter%5 == 0) or (iter == n_iter):
+                if iter == n_iter: # last iteration of each epoch
                     fx = tf.reduce_mean(fx)
                     fgz1 = tf.reduce_mean(fgz1)
                     fgz2 = tf.reduce_mean(fgz2)
@@ -284,12 +284,6 @@ class WSRGAN_GP(keras.Model):
                         plt.grid(False)
                         plt.imshow(sr_img[a].numpy().astype(np.uint8))
                     plt.savefig(OUTPUT_DIR + f'epoch{epoch+INITIAL_EPOCH}_iter{iter+INITIAL_ITER}.png', bbox_inches='tight')
-
-                    # overlay_imgs = np.abs(hr_img-sr_img)
-                    # for a in range(36):
-                    #     plt.subplot(6, 6, a+1)
-                    #     plt.imshow(overlay_imgs[a].astype(np.uint8), alpha=0.5)
-                    # plt.savefig(OUTPUT_DIR + f'epoch{epoch+INITIAL_EPOCH}_iter{iter+INITIAL_ITER}_overlay.png', bbox_inches='tight')
 
                     plt.close('all')
 
