@@ -120,9 +120,10 @@ class WSRGAN_GP(keras.Model):
 
         self.features_extractor = keras.Model(inputs=self.vgg19.input, outputs=self.vgg19.get_layer('block5_conv4').output)
 
-    def compile(self, gen_optimizer, crit_optimizer):
+    def compile(self, gen_optimizer, crit_optimizer, ckpt_manager):
         self.gen_optimizer = gen_optimizer
         self.crit_optimizer = crit_optimizer
+        self.ckpt_manager = ckpt_manager
 
     def preprocess_vgg(self, img):
         # convert back to [0, 255]
@@ -287,14 +288,17 @@ class WSRGAN_GP(keras.Model):
 
                     plt.close('all')
 
-            # for each epoch
+            ## for each epoch
+            # save progress file
             self.save_progress(progress)
-            self.save_weights(CHECKPOINT_DIR + f'wsrgan-gp')
 
-            # save state
+            # save state file
             state_file = open(STATE_FILE_PATH, 'wb')
             pickle.dump({
                 'LATEST_EPOCH': epoch+INITIAL_EPOCH,
                 'LATEST_ITER': iter+INITIAL_ITER,
             }, state_file)
             state_file.close()
+
+            # save weight checkpoint
+            self.ckpt_manager.save()
